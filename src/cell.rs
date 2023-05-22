@@ -1,10 +1,10 @@
 use std::str::FromStr;
 
-use self::{value::Value, expression::Expression, cell_clone::CellClone};
+use self::{cell_clone::CellClone, expression::Expression, value::Value};
 
-mod cell_clone;
-mod expression;
-mod value;
+pub mod cell_clone;
+pub mod expression;
+pub mod value;
 #[derive(Debug)]
 pub enum Cell {
     Value(Value),
