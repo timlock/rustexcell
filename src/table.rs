@@ -1,18 +1,163 @@
-use std::{
-    borrow::BorrowMut, collections::HashMap, hash::Hash, rc::Rc, str::FromStr,
-    string::FromUtf8Error,
-};
+use std::{collections::HashMap, rc::Rc, str::FromStr, string::FromUtf8Error};
 
-use crate::cell::{cell_clone::CellClone, expression::Expression, Cell};
+use crate::{
+    cell::{expression::Expression, Cell},
+    table_error::TableError,
+    table_output::TableOutput,
+};
+type TableResult<'a> = Result<TableOutput, TableError<'a>>;
 
 #[derive(Debug)]
 pub struct Table {
     cells: Vec<Rc<Cell>>,
-    columns: Vec<Rc<String>>,
-    rows: Vec<Rc<String>>,
-    sheet: HashMap<Rc<String>, HashMap<Rc<String>, Rc<Cell>>>,
+    columns: Vec<String>,
+    rows: Vec<String>,
+    sheet: HashMap<String, HashMap<String, Rc<Cell>>>,
 }
 
+impl Table {
+    pub fn empty() -> Table {
+        Table {
+            cells: Vec::new(),
+            columns: Vec::new(),
+            rows: Vec::new(),
+            sheet: HashMap::new(),
+        }
+    }
+    pub fn insert_cell_by_index(
+        &mut self,
+        row_index: usize,
+        col_index: usize,
+        cell: Cell,
+    ) -> Result<Rc<Cell>, String> {
+        if self.rows.get(row_index).is_none() {
+            return Err(format!("Invalid row index: {}", row_index));
+        }
+        let row_id = &self.rows[row_index].clone();
+        if self.columns.get(col_index).is_none() {
+            return Err(format!("Invalid column index: {}", col_index));
+        }
+        let col_id = &self.columns[col_index].clone();
+        self.insert_cell_by_id(row_id, col_id, cell)
+    }
+
+    pub fn insert_cell_by_id(
+        &mut self,
+        row_id: &String,
+        col_id: &String,
+        cell: Cell,
+    ) -> Result<Rc<Cell>, String> {
+        if !self.rows.contains(row_id) {
+            return Err(format!("Invalid row_id: {}", row_id));
+        }
+        if !self.columns.contains(col_id) {
+            return Err(format!("Invalid col_id: {}", col_id));
+        }
+        let cell = Rc::new(cell);
+        if self.sheet.get(row_id).is_none() {
+            self.sheet.insert(row_id.clone(), HashMap::new());
+        }
+        let row = self.sheet.get_mut(row_id).unwrap();
+        row.insert(col_id.clone(), cell.clone());
+        self.cells.push(cell.clone());
+        Ok(cell)
+    }
+
+    fn parse_header(&mut self, header_string: &str) {
+        header_string
+            .split(',')
+            .into_iter()
+            .filter(|c| *c != " " && !c.is_empty())
+            .for_each(|c| self.columns.push(c.to_string()));
+    }
+
+    fn parse_row(&mut self, row_string: &str) {
+        let mut seperated = row_string.split(',').collect::<Vec<&str>>();
+        if seperated.len() < 1 {
+            panic!("Row {seperated:?} is missing commas");
+        }
+        let row_id = String::from(seperated.remove(0));
+        self.rows.push(row_id);
+        let row_index = self.rows.len() - 1;
+        seperated
+            .into_iter()
+            .map(|c| Cell::from_str(c).expect(format!("Could not parse cell {}", c).as_str()))
+            .enumerate()
+            .for_each(|(i, c)| {
+                if !c.is_empty() {
+                    self.insert_cell_by_index(row_index, i, c).unwrap();
+                }
+            });
+        // .collect::<Vec<Cell>>();
+        // .map(|c| Cell::from_str(c))
+        // .collect::<Vec<Result<Cell, String>>>();
+
+        // let mut row = HashMap::new();
+        // parse_cells(seperated)
+        //     .into_iter()
+        //     .enumerate()
+        //     .for_each(|(id, c)| {
+        //         if let Some(cell) = c {
+        //             let col_id = self.columns.get(id).unwrap();
+        //             row.insert(col_id.clone(), cell.clone());
+        //             self.cells.push(cell.clone());
+        //         }
+        //     });
+
+        // let row_id = self.rows.last().unwrap().clone();
+        // self.sheet.insert(row_id, row);
+    }
+
+    pub fn compute(&self) -> TableResult {
+        let mut table_output = TableOutput::new(8);
+        self.rows.iter().enumerate().for_each(|(index, _)| {
+            let letter = match base10_to_base26(index + 1) {
+                Ok(l) => l,
+                Err(_) => panic!("Invalid tableheader"),
+            };
+            table_output.add_col(letter);
+        });
+        self.rows
+            .iter()
+            .enumerate()
+            .for_each(|(row_index, row_id)| {
+                table_output.add_row((row_index + 1).to_string());
+                self.columns
+                    .iter()
+                    .enumerate()
+                    .for_each(|(col_index, col_id)| {
+                        if let Some(cell) = self.get_cell(row_id, col_id) {
+                            let result = self.compute_cell(&cell);
+                            table_output
+                                .insert_cell(result, row_index, col_index)
+                                .unwrap();
+                        }
+                    });
+            });
+        TableResult::Ok(table_output)
+    }
+
+    fn get_cell(&self, row_id: &String, col_id: &String) -> Option<&Rc<Cell>> {
+        if let Some(row) = self.sheet.get(row_id) {
+            if let Some(cell) = row.get(col_id) {
+                return Some(cell);
+            }
+        }
+        None
+    }
+
+    fn compute_cell(&self, cell: &Rc<Cell>) -> String {
+        match &**cell {
+            Cell::Value(v) => v.to_string(),
+            Cell::Expression(e) => self.compute_expression(e),
+            Cell::Empty => String::new(),
+        }
+    }
+
+    fn compute_expression(&self, e: &Expression) -> String {
+        todo!()
+    }
+}
 impl TryFrom<String> for Table {
     type Error = String;
 
@@ -28,122 +173,9 @@ impl TryFrom<String> for Table {
         Ok(table)
     }
 }
-
-impl Table {
-    pub fn empty() -> Table {
-        Table {
-            cells: Vec::new(),
-            columns: Vec::new(),
-            rows: Vec::new(),
-            sheet: HashMap::new(),
-        }
-    }
-
-    fn parse_header(&mut self, header_string: &str) {
-        header_string
-            .split(',')
-            .into_iter()
-            .for_each(|c| self.columns.push(Rc::new(c.to_string())));
-    }
-
-    fn parse_row(&mut self, row_string: &str) {
-        let mut seperated = row_string.split(',');
-        let row_id = parse_row_id(&mut seperated);
-        self.rows.push(Rc::new(row_id));
-        let mut row = HashMap::new();
-        parse_cells(seperated)
-            .into_iter()
-            .enumerate()
-            .for_each(|(id, c)| {
-                if let Some(cell) = c {
-                    let col_id = self.columns.get(id + 1).unwrap();
-                    row.insert(col_id.clone(), cell.clone());
-                    self.cells.push(cell.clone());
-                }
-            });
-
-        let row_id = self.rows.last().unwrap().clone();
-        self.sheet.insert(row_id, row);
-    }
-
-    pub fn compute(&self) -> Result<String, String> {
-        let mut output = String::from(" ,");
-        self.rows.iter().enumerate().for_each(|(index, row_id)| {
-            let letter = match base10_to_base26(index) {
-                Ok(l) => l,
-                Err(e) => panic!("Invalid tableheader"),
-            };
-            output += letter.as_str();
-            output += ",";
-        });
-        output += "\n";
-
-        self.rows.iter().for_each(|row_id| {
-            output += row_id;
-            output += ",";
-            self.columns.iter().for_each(|col_id| {
-                if let Some(cell) = self.get_cell(row_id, col_id) {
-                    // let result = self.compute_cell(&cell).as_str();
-                    // output += result;
-                    // output += ",";
-                }
-            });
-            output += "\n";
-        });
-
-        for row_id in &self.rows {
-            if let Some(row) = self.sheet.get(row_id) {
-                output += row_id.as_str();
-                output += ",";
-                for column_id in &self.columns {
-                    if let Some(c) = row.get(column_id) {
-                        output += column_id;
-                        output += ",";
-                        let cell_str = match **c {
-                            Cell::Value(v) => v.to_string(),
-                            Cell::Expression(_) => todo!(),
-                            Cell::Clone(_) => todo!(),
-                        };
-                        output += cell_str.as_str();
-                    } else {
-                        output += " ";
-                    }
-                    output += ",";
-                }
-                output += "\n";
-            }
-        }
-        Ok(output)
-    }
-
-    fn get_cell(&self, row_id: &Rc<String>, col_id: &Rc<String>) -> Option<&Rc<Cell>> {
-        if let Some(row) = self.sheet.get(row_id) {
-            if let Some(cell) = row.get(col_id) {
-                return Some(cell);
-            }
-        }
-        None
-    }
-
-    fn compute_cell(&self, cell: &Rc<Cell>) -> String {
-        match &**cell {
-            Cell::Value(v) => v.to_string(),
-            Cell::Expression(e) => self.compute_expression(e),
-            Cell::Clone(c) => self.compute_clone(c),
-        }
-    }
-
-    fn compute_expression(&self, e: &Expression) -> String {
-        todo!()
-    }
-
-    fn compute_clone(&self, c: &CellClone) -> String {
-        todo!()
-    }
-}
-
-fn parse_cells(seperated: std::str::Split<char>) -> Vec<Option<Rc<Cell>>> {
+fn parse_cells(seperated: Vec<&str>) -> Vec<Option<Rc<Cell>>> {
     seperated
+        .iter()
         .map(|s| {
             if let Ok(c) = Cell::from_str(s) {
                 let cell_ref = Rc::new(c);
@@ -152,13 +184,6 @@ fn parse_cells(seperated: std::str::Split<char>) -> Vec<Option<Rc<Cell>>> {
             None
         })
         .collect()
-}
-
-fn parse_row_id(seperated: &mut std::str::Split<char>) -> String {
-    seperated
-        .next()
-        .expect(format!("Row {seperated:?} is missing commas").as_str())
-        .to_string()
 }
 
 fn base10_to_base26(mut number: usize) -> Result<String, FromUtf8Error> {
