@@ -1,10 +1,16 @@
+pub mod table_error;
+pub mod table_output;
+mod table_parser;
+
 use std::{collections::HashMap, rc::Rc, str::FromStr, string::FromUtf8Error};
 
 use crate::{
     cell::{expression::Expression, Cell},
-    table_error::TableError,
-    table_output::TableOutput,
+    table::table_error::TableError,
+    table::table_output::TableOutput,
 };
+
+use self::table_parser::TableParser;
 type TableResult<'a> = Result<TableOutput, TableError<'a>>;
 
 #[derive(Debug)]
@@ -63,51 +69,6 @@ impl Table {
         Ok(cell)
     }
 
-    fn parse_header(&mut self, header_string: &str) {
-        header_string
-            .split(',')
-            .into_iter()
-            .filter(|c| *c != " " && !c.is_empty())
-            .for_each(|c| self.columns.push(c.to_string()));
-    }
-
-    fn parse_row(&mut self, row_string: &str) {
-        let mut seperated = row_string.split(',').collect::<Vec<&str>>();
-        if seperated.len() < 1 {
-            panic!("Row {seperated:?} is missing commas");
-        }
-        let row_id = String::from(seperated.remove(0));
-        self.rows.push(row_id);
-        let row_index = self.rows.len() - 1;
-        seperated
-            .into_iter()
-            .map(|c| Cell::from_str(c).expect(format!("Could not parse cell {}", c).as_str()))
-            .enumerate()
-            .for_each(|(i, c)| {
-                if !c.is_empty() {
-                    self.insert_cell_by_index(row_index, i, c).unwrap();
-                }
-            });
-        // .collect::<Vec<Cell>>();
-        // .map(|c| Cell::from_str(c))
-        // .collect::<Vec<Result<Cell, String>>>();
-
-        // let mut row = HashMap::new();
-        // parse_cells(seperated)
-        //     .into_iter()
-        //     .enumerate()
-        //     .for_each(|(id, c)| {
-        //         if let Some(cell) = c {
-        //             let col_id = self.columns.get(id).unwrap();
-        //             row.insert(col_id.clone(), cell.clone());
-        //             self.cells.push(cell.clone());
-        //         }
-        //     });
-
-        // let row_id = self.rows.last().unwrap().clone();
-        // self.sheet.insert(row_id, row);
-    }
-
     pub fn compute(&self) -> TableResult {
         let mut table_output = TableOutput::new(8);
         self.rows.iter().enumerate().for_each(|(index, _)| {
@@ -162,28 +123,16 @@ impl TryFrom<String> for Table {
     type Error = String;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        let mut table = Table::empty();
+        let mut table_parser = TableParser::new();
         let mut lines = value.lines();
         if let Some(l) = lines.next() {
-            table.parse_header(l);
+            table_parser.parse_header(l);
         };
         while let Some(l) = lines.next() {
-            table.parse_row(l);
+            table_parser.parse_row(l);
         }
-        Ok(table)
+        Ok(table_parser.build())
     }
-}
-fn parse_cells(seperated: Vec<&str>) -> Vec<Option<Rc<Cell>>> {
-    seperated
-        .iter()
-        .map(|s| {
-            if let Ok(c) = Cell::from_str(s) {
-                let cell_ref = Rc::new(c);
-                return Some(cell_ref);
-            }
-            None
-        })
-        .collect()
 }
 
 fn base10_to_base26(mut number: usize) -> Result<String, FromUtf8Error> {
