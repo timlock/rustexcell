@@ -161,7 +161,7 @@ mod tests {
         actual.add_col(String::from("A"));
         actual.add_row(String::from("1"));
         actual.insert_cell(String::from("123456789"), 0, 0).unwrap();
-        let expected = String::from("0,       A\n1,       1*10^8\n");
+        let expected = String::from("0,       A\n1,  1*10^8\n");
         let actual = actual.to_string();
         assert_eq!(expected, actual);
     }

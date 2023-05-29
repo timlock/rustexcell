@@ -1,13 +1,13 @@
 use std::str::FromStr;
 
-use self::{expression::Expression, value::Value};
+use self::{formula::Formula, value::Value};
 
-pub mod expression;
+pub mod formula;
 pub mod value;
 #[derive(Debug)]
 pub enum Cell {
     Value(Value),
-    Expression(Expression),
+    Expression(Formula),
     Empty,
 }
 
@@ -30,7 +30,7 @@ impl FromStr for Cell {
         if let Ok(c) = Value::from_str(s) {
             return Ok(Cell::Value(c));
         }
-        if let Ok(c) = Expression::from_str(s) {
+        if let Ok(c) = Formula::from_str(s) {
             return Ok(Cell::Expression(c));
         }
         Err(format!("Could not parse cell: {s}"))

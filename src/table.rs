@@ -1,11 +1,12 @@
+mod id_converter;
 pub mod table_error;
 pub mod table_output;
 mod table_parser;
 
-use std::{collections::HashMap, rc::Rc, str::FromStr, string::FromUtf8Error};
+use std::{collections::HashMap, rc::Rc};
 
 use crate::{
-    cell::{expression::Expression, Cell},
+    cell::{formula::Formula, Cell},
     table::table_error::TableError,
     table::table_output::TableOutput,
 };
@@ -72,7 +73,7 @@ impl Table {
     pub fn compute(&self) -> TableResult {
         let mut table_output = TableOutput::new(8);
         self.rows.iter().enumerate().for_each(|(index, _)| {
-            let letter = match base10_to_base26(index + 1) {
+            let letter = match id_converter::base10_to_base26(index + 1) {
                 Ok(l) => l,
                 Err(_) => panic!("Invalid tableheader"),
             };
@@ -81,8 +82,11 @@ impl Table {
         self.rows
             .iter()
             .enumerate()
+            .for_each(|(index, _)| table_output.add_row((index + 1).to_string()));
+        self.rows
+            .iter()
+            .enumerate()
             .for_each(|(row_index, row_id)| {
-                table_output.add_row((row_index + 1).to_string());
                 self.columns
                     .iter()
                     .enumerate()
@@ -91,9 +95,9 @@ impl Table {
                             let result = self.compute_cell(&cell);
                             table_output
                                 .insert_cell(result, row_index, col_index)
-                                .unwrap();
+                                .unwrap()
                         }
-                    });
+                    })
             });
         TableResult::Ok(table_output)
     }
@@ -115,7 +119,7 @@ impl Table {
         }
     }
 
-    fn compute_expression(&self, e: &Expression) -> String {
+    fn compute_expression(&self, e: &Formula) -> String {
         todo!()
     }
 }
@@ -135,55 +139,4 @@ impl TryFrom<String> for Table {
     }
 }
 
-fn base10_to_base26(mut number: usize) -> Result<String, FromUtf8Error> {
-    let mut bytes = Vec::new();
-    let n = number / 26;
-    for _ in 0..=n {
-        let remainder = number % 26;
-        bytes.push(remainder as u8);
-        number /= 26;
-    }
-    let b = bytes
-        .iter()
-        .rev()
-        .map(|byte| *byte + 64)
-        .collect::<Vec<u8>>();
-    String::from_utf8(b)
-}
 
-fn base26_to_base10(letter: String) -> u32 {
-    let base: u32 = 26;
-    letter
-        .as_bytes()
-        .into_iter()
-        .rev()
-        .enumerate()
-        .map(|(mut index, mut byte)| {
-            let letter = (byte - 64) as u32;
-            (index, letter)
-        })
-        .fold(0, |accumulator, (index, letter)| {
-            let b = letter * base.pow(index as u32);
-            accumulator + b
-        })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn test_base10_to_base26() {
-        let mut number = 3;
-        assert_eq!("C", base10_to_base26(number).unwrap());
-        number = 28;
-        assert_eq!("AB", base10_to_base26(number).unwrap());
-    }
-
-    #[test]
-    fn test_base26_to_base10() {
-        let mut letter = String::from("C");
-        assert_eq!(3, base26_to_base10(letter));
-        letter = String::from("AB");
-        assert_eq!(28, base26_to_base10(letter));
-    }
-}
